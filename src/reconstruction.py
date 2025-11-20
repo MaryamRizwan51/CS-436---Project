@@ -45,7 +45,7 @@ def reconstruct_two_views(pts1, pts2, K):
     """
     # 1. Find Essential Matrix using RANSAC
     # This filters out outliers that don't fit the geometry
-    E, mask = cv2.findEssentialMat(pts1, pts2, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+    E, mask = cv2.findEssentialMat(pts1, pts2, K, method=cv2.RANSAC, prob=0.999, threshold=3.0)
     
     # Keep only the inlier points (points that fit the Essential Matrix)
     pts1_inliers = pts1[mask.ravel() == 1]
