@@ -8,7 +8,7 @@ Project Structure
 The repository is organized as follows:
 
 .
-├── data/               # Holds the input image dataset
+├── data2/               # Holds the input image dataset
 ├── notebooks/          # Jupyter notebooks for experimentation and reports
 ├── src/                # Main Python source code (.py files) for the pipeline
 ├── .gitignore          # Specifies files for Git to ignore
