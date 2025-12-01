@@ -2,6 +2,53 @@ import cv2
 import numpy as np
 import open3d as o3d
 
+from PIL import Image
+from PIL.ExifTags import TAGS
+
+def get_intrinsic_from_exif(image_path):
+    """
+    Extracts focal length from EXIF and builds K.
+    Falls back to approximation if EXIF is missing.
+    """
+    img = Image.open(image_path)
+    exif_data = img._getexif()
+    
+    w, h = img.size
+    focal_length_mm = None
+    
+    # 35mm film sensor width is a standard constant for conversion
+    SENSOR_WIDTH_35MM = 36.00 
+    
+    if exif_data:
+        for tag_id, value in exif_data.items():
+            tag_name = TAGS.get(tag_id, tag_id)
+            
+            # Look for FocalLengthIn35mmFilm (Tag 41989)
+            if tag_name == 'FocalLengthIn35mmFilm':
+                focal_length_mm = value
+                break
+                
+    if focal_length_mm:
+        # Calculate focal length in pixels
+        fx = (focal_length_mm / SENSOR_WIDTH_35MM) * w
+        fy = fx # Assume square pixels
+        cx = w / 2
+        cy = h / 2
+        print(f"EXIF Found: f_mm={focal_length_mm}, f_px={fx:.2f}")
+    else:
+        print("EXIF not found. Using approximation.")
+        fx = w * 1.0 # Fallback from project manual
+        fy = w * 1.0
+        cx = w / 2
+        cy = h / 2
+
+    K = np.array([
+        [fx, 0, cx],
+        [0, fy, cy],
+        [0, 0,  1]
+    ])
+    return K
+
 def get_intrinsic_matrix(img_shape):
     """
     Approximate the intrinsic camera matrix K.
