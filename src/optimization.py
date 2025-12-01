@@ -8,7 +8,7 @@ def project_points(points_3d, camera_params, K):
     """Projects 3D points to 2D image plane."""
     points_proj = []
     
-    # Process in batches or loop (loop is fine for readability here)
+    # Process in batches 
     for i in range(len(points_3d)):
         # Unpack
         r_vec = camera_params[i, :3]
@@ -18,7 +18,6 @@ def project_points(points_3d, camera_params, K):
         R, _ = cv2.Rodrigues(r_vec)
         
         # Transform: P_cam = R * P_world + t
-        # (Using dot for explicit clarity, though slower than broadcasting)
         p_cam = np.dot(R, points_3d[i]) + t_vec
         
         # Avoid division by zero if point is behind camera
@@ -53,19 +52,19 @@ def bundle_adjustment_sparsity(n_cameras, n_points, camera_indices, point_indice
     Computes the Jacobian sparsity structure.
     This tells the solver which parameters affect which residuals.
     """
-    m = camera_indices.size * 2 # number of residuals (2 per observation)
+    m = camera_indices.size * 2 # number of residuals 
     n = n_cameras * 6 + n_points * 3 # total parameters
     
     A = lil_matrix((m, n), dtype=int)
 
     i = np.arange(camera_indices.size)
     
-    # Mark camera parameters (6 params per camera)
+    # Mark camera parameters 
     for s in range(6):
         A[2 * i, camera_indices * 6 + s] = 1
         A[2 * i + 1, camera_indices * 6 + s] = 1
 
-    # Mark point parameters (3 params per point)
+    # Mark point parameters 
     for s in range(3):
         A[2 * i, n_cameras * 6 + point_indices * 3 + s] = 1
         A[2 * i + 1, n_cameras * 6 + point_indices * 3 + s] = 1
@@ -103,22 +102,21 @@ def bundle_adjustment(poses, points_3d, observations, K):
     point_indices = np.array(point_indices)
     points_2d = np.array(points_2d)
     
-    # 3. Compute Sparsity Matrix (The Speed Fix!)
+    # 3. Compute Sparsity Matrix 
     A = bundle_adjustment_sparsity(n_cameras, n_points, camera_indices, point_indices)
     
     # 4. Run Optimization
     x0 = np.hstack((camera_params.ravel(), np.array(points_3d).ravel()))
     
-    # We restrict max_nfev to 20 to prevent it from running forever even with sparsity
     res = least_squares(
         reprojection_error, 
         x0, 
-        jac_sparsity=A,       # <--- CRITICAL: Uses sparse solver
+        jac_sparsity=A,       
         verbose=2, 
         x_scale='jac', 
-        ftol=1e-3,            # Relaxed tolerance for speed
+        ftol=1e-3,            
         method='trf', 
-        max_nfev=30,          # <--- CRITICAL: Hard limit on iterations
+        max_nfev=30,          
         args=(n_cameras, n_points, camera_indices, point_indices, points_2d, K)
     )
     

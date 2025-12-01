@@ -7,18 +7,17 @@ from src.optimization import bundle_adjustment  # Requires src/optimization.py
 class SfMMap:
     def __init__(self, K):
         self.K = K
-        self.points_3d = []  # List of [x, y, z]
-        self.colors = []     # List of [r, g, b]
-        self.poses = []      # List of (R, t)
+        self.points_3d = []  #  [x, y, z]
+        self.colors = []     # [r, g, b]
+        self.poses = []      #  (R, t)
         
         # Feature Management
         self.point_cloud_des = [] # List of descriptors for 3D points
         
         # Frame-to-Frame Tracking map
-        # Maps Keypoint Index in LAST image -> Index in self.points_3d
         self.map_2d_3d = {}
         
-        # Bundle Adjustment Data: Stores (cam_idx, point_idx, u, v)
+        # Bundle Adjustment Data
         self.observations = [] 
         
         self.last_img = None
@@ -55,7 +54,6 @@ class SfMMap:
         self.poses.append((np.eye(3), np.zeros((3, 1)))) # Camera 0
         self.poses.append((R, t))                        # Camera 1
         
-        # --- RECORD OBSERVATIONS (Frame 0 and Frame 1) ---
         for i in range(len(pts1_inliers)):
             # Frame 0 sees point i
             self.observations.append((0, i, pts1_inliers[i][0], pts1_inliers[i][1]))
@@ -104,17 +102,17 @@ class SfMMap:
 
         bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
         
-        # --- PHASE 1: Gather PnP Correspondences ---
-        pnp_matches = {} # {queryIdx_new : trainIdx_3d}
+        # Gather PnP Correspondences
+        pnp_matches = {} 
 
-        # Strategy A: Match against 3D Point Descriptors (Global)
+        #  Match against 3D Point Descriptors (Global)
         if len(self.point_cloud_des) > 0:
             knn_matches_3d = bf.knnMatch(des_new, self.point_cloud_des, k=2)
             for m, n in knn_matches_3d:
                 if m.distance < 0.8 * n.distance:
                     pnp_matches[m.queryIdx] = m.trainIdx
 
-        # Strategy B: Match against Last Frame (Local Fallback)
+        #  Match against Last Frame (Local Fallback)
         knn_matches_2d = bf.knnMatch(self.last_des, des_new, k=2)
         good_matches_2d = [] 
         
@@ -130,7 +128,6 @@ class SfMMap:
         object_points = []
         image_points = []
         
-        # We need an ordered list of keys to map back inliers to pnp_matches
         pnp_keys = list(pnp_matches.keys())
         
         for kp_idx in pnp_keys:
@@ -145,7 +142,7 @@ class SfMMap:
             print(f"PnP Failed: Not enough points ({len(object_points)} < 6). Skipping.")
             return
 
-        # --- PHASE 2: Pose Estimation ---
+        # PHASE 2: Pose Estimation
         success, rvec, tvec, inliers = cv2.solvePnPRansac(
             object_points, image_points, self.K, None, 
             flags=cv2.SOLVEPNP_ITERATIVE, reprojectionError=8.0, confidence=0.99
@@ -160,22 +157,21 @@ class SfMMap:
         self.poses.append((R, t))
         current_cam_idx = len(self.poses) - 1
         
-        # --- FIXED LOGIC: Refine map using ONLY Inliers ---
         final_map_2d_3d = {}
         inliers_flat = inliers.ravel()
         
         for i in inliers_flat:
-            kp_idx = pnp_keys[i]       # Recover original Keypoint Index
-            pt3d_idx = pnp_matches[kp_idx] # Recover 3D Point Index
+            kp_idx = pnp_keys[i]       
+            pt3d_idx = pnp_matches[kp_idx] 
             
-            # 1. Update Map for tracking in next frame
+            #  Update Map for tracking in next frame
             final_map_2d_3d[kp_idx] = pt3d_idx
             
-            # 2. RECORD OBSERVATION (Existing 3D point seen in New Frame)
+            #  RECORD OBSERVATION 
             pt_2d = kp_new[kp_idx].pt
             self.observations.append((current_cam_idx, pt3d_idx, pt_2d[0], pt_2d[1]))
 
-        # --- PHASE 3: Triangulate NEW Points ---
+        # Triangulate NEW Points
         
         R_last, t_last = self.poses[-2]
         P_last = self.K @ np.hstack((R_last, t_last))
@@ -187,7 +183,7 @@ class SfMMap:
         new_kp_indices = []
         
         for m in good_matches_2d:
-            # Only triangulate points that are NOT already in 3D
+            # Only triangulating points that are not already in 3D
             if m.trainIdx not in final_map_2d_3d:
                 pts_last_tri.append(self.last_kp[m.queryIdx].pt)
                 pts_new_tri.append(kp_new[m.trainIdx].pt)
@@ -211,20 +207,20 @@ class SfMMap:
             
             for i, pt in enumerate(candidates):
                 pt_cam = R @ pt + t.flatten()
-                if pt_cam[2] > 0.01: # Depth check
+                if pt_cam[2] > 0.01: 
                     self.points_3d.append(pt)
                     new_descriptors_list.append(des_for_new_points[i])
                     
-                    # Update Map: New Keypoint -> New 3D Index
+                    # Update Map: 
                     new_pt_idx = start_new_idx + added_count
                     final_map_2d_3d[new_kp_indices[i]] = new_pt_idx
                     
                     # --- RECORD OBSERVATIONS (New Point) ---
-                    # 1. Seen in Last Frame
+                    # Seen in Last Frame
                     u_last, v_last = pts_last_tri[i]
                     self.observations.append((current_cam_idx - 1, new_pt_idx, u_last, v_last))
                     
-                    # 2. Seen in Current Frame
+                    # Seen in Current Frame
                     u_new, v_new = pts_new_tri[i]
                     self.observations.append((current_cam_idx, new_pt_idx, u_new, v_new))
 
@@ -241,7 +237,7 @@ class SfMMap:
 
         print(f"View Added. Inliers: {len(inliers)}, New Points: {added_count}, Total: {len(self.points_3d)}")
 
-        # --- PHASE 4: Update State ---
+        # Update State 
         self.map_2d_3d = final_map_2d_3d
         self.last_img = new_img
         self.last_kp = kp_new
