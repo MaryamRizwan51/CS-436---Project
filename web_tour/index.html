@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CS436 Virtual Tour</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #info {
+            position: absolute; top: 10px; width: 100%; text-align: center; color: white;
+            pointer-events: none; text-shadow: 1px 1px 2px black; z-index: 10;
+        }
+        #controls {
+            position: absolute; bottom: 20px; left: 20px; color: white; z-index: 10;
+            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px;
+        }
+        button { cursor: pointer; padding: 5px 10px; font-size: 14px; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 24px; font-weight: bold; text-align: center;
+            background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
+        }
+    </style>
+    <!-- Import Three.js and Loaders from CDN -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="info">
+        <h2>CS436 Virtual Tour</h2>
+        <p>Click on a green camera cone to fly to that view.<br>
+        Drag to rotate | Scroll to zoom</p>
+    </div>
+    <div id="loading">Loading 3D Scene...</div>
+    
+    <div id="controls">
+        <button id="toggle-cloud">Toggle Point Cloud</button>
+        <button id="toggle-cameras">Toggle Cameras</button>
+        <div id="current-img" style="margin-top:10px; font-size:12px;">View: None</div>
+    </div>
+
+    <!-- MAIN APP SCRIPT -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+        // --- GLOBAL VARIABLES ---
+        let scene, camera, renderer, controls;
+        let pointCloud, cameraGroup;
+        let camerasData = [];
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        
+        // Animation variables
+        let isTransitioning = false;
+        let transitionStartTime;
+        let startPos = new THREE.Vector3();
+        let startQuat = new THREE.Quaternion();
+        let targetPos = new THREE.Vector3();
+        let targetQuat = new THREE.Quaternion();
+        const TRANSITION_DURATION = 1500; // ms
+
+        // Image Overlay (The "Photo" plane)
+        let imagePlane;
+
+        init();
+        animate();
+
+        function init() {
+            // 1. Setup Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111111); // Dark grey background
+
+            // 2. Setup Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 10); // Initial overview position
+
+            // 3. Setup Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 4. Controls (Orbit around the scene)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // 5. Lights (Simple ambient)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+            scene.add(ambientLight);
+
+            // 6. Groups
+            cameraGroup = new THREE.Group();
+            scene.add(cameraGroup);
+
+            // 7. Load Data
+            loadResources();
+
+            // 8. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
+            
+            // UI Buttons
+            document.getElementById('toggle-cloud').onclick = () => {
+                if(pointCloud) pointCloud.visible = !pointCloud.visible;
+            };
+            document.getElementById('toggle-cameras').onclick = () => {
+                cameraGroup.visible = !cameraGroup.visible;
+            };
+            
+            // Setup Image Plane (Hidden initially)
+            setupImagePlane();
+        }
+
+        function setupImagePlane() {
+            const geometry = new THREE.PlaneGeometry(16, 9); // Aspect ratio 16:9 approx
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xffffff, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.0 // Invisible start
+            });
+            imagePlane = new THREE.Mesh(geometry, material);
+            // Put it slightly in front of the camera so it doesn't clip
+            scene.add(imagePlane);
+        }
+
+        function loadResources() {
+            const manager = new THREE.LoadingManager();
+            manager.onLoad = function () {
+                document.getElementById('loading').style.display = 'none';
+            };
+            
+            manager.onError = function (url) {
+                 console.error('There was an error loading ' + url);
+                 document.getElementById('loading').innerHTML = `Error loading: ${url}<br><br>Make sure you are running a Local Server (Step 3).<br>This cannot run in the Preview window.`;
+                 document.getElementById('loading').style.color = 'red';
+            };
+
+            // A. Load Point Cloud
+            // We use ./ to ensure it looks in the current directory
+            const plyLoader = new PLYLoader(manager);
+            plyLoader.load('./point_cloud.ply', function (geometry) {
+                // Point Cloud Material (Vertex Colors)
+                const material = new THREE.PointsMaterial({ 
+                    size: 0.05, 
+                    vertexColors: true 
+                });
+                pointCloud = new THREE.Points(geometry, material);
+                
+                // IMPORTANT: SfM usually centers around 0,0,0, but check orientation
+                // Open3D PLY is usually Y-up or Z-up. We might need rotation.
+                // Try rotating X by 180 or Z by 180 if it looks upside down.
+                pointCloud.rotation.x = Math.PI; 
+                
+                scene.add(pointCloud);
+            }, undefined, function(error) {
+                console.error("PLY Loader Error:", error);
+            });
+
+            // B. Load Cameras JSON
+            fetch('./cameras.json')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    camerasData = data;
+                    createCameraFrustums();
+                })
+                .catch(err => {
+                    console.error("Could not load cameras.json", err);
+                    document.getElementById('loading').innerHTML = "Error loading cameras.json.<br>Check console for details.";
+                });
+        }
+
+        function createCameraFrustums() {
+            // Geometry for the camera representation (a small cone)
+            const geom = new THREE.ConeGeometry(0.2, 0.5, 4);
+            geom.rotateX(Math.PI / 2); // Point cone along Z axis
+
+            camerasData.forEach((camData, index) => {
+                const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+                const mesh = new THREE.Mesh(geom, material);
+
+                // Apply the matrix from JSON
+                const matrix = new THREE.Matrix4();
+                matrix.fromArray(camData.matrix);
+                
+                // Decompose to apply to mesh
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                matrix.decompose(pos, quat, scale);
+
+                mesh.position.copy(pos);
+                mesh.quaternion.copy(quat);
+                
+                // Fix orientation: SfM cameras often look down +Z or -Z. 
+                // We might need to adjust the mesh rotation to match "looking forward".
+                // This usually requires trial and error depending on the SfM system.
+                // For OpenCV standard (Z-forward), we usually rotate the mesh 180 on X.
+                mesh.rotateX(Math.PI); 
+
+                mesh.userData = { id: index, filename: camData.filename };
+                cameraGroup.add(mesh);
+            });
+        }
+
+        function onPointerDown(event) {
+            // Calculate mouse position
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Check intersections with Camera Group
+            const intersects = raycaster.intersectObjects(cameraGroup.children);
+
+            if (intersects.length > 0) {
+                const selectedCam = intersects[0].object;
+                startTransitionTo(selectedCam);
+            }
+        }
+
+        function startTransitionTo(targetMesh) {
+            if (isTransitioning) return;
+
+            const camIndex = targetMesh.userData.id;
+            const filename = targetMesh.userData.filename;
+            
+            document.getElementById('current-img').innerText = "Flying to: " + filename;
+
+            // Setup Transition
+            isTransitioning = true;
+            transitionStartTime = performance.now();
+            
+            startPos.copy(camera.position);
+            startQuat.copy(camera.quaternion);
+
+            // Target Position: We want to be exactly at the camera pose
+            targetPos.copy(targetMesh.position);
+            targetQuat.copy(targetMesh.quaternion);
+            
+            // Load the image texture for the overlay
+            // We do this while flying
+            new THREE.TextureLoader().load(filename, function(texture) {
+                imagePlane.material.map = texture;
+                imagePlane.material.needsUpdate = true;
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+
+            if (isTransitioning) {
+                const elapsed = now - transitionStartTime;
+                const t = Math.min(elapsed / TRANSITION_DURATION, 1.0);
+                
+                // Smooth Step interpolation
+                const smoothT = t * t * (3 - 2 * t);
+
+                // Lerp Position
+                camera.position.lerpVectors(startPos, targetPos, smoothT);
+                
+                // Slerp Rotation
+                camera.quaternion.slerpQuaternions(startQuat, targetQuat, smoothT);
+
+                // Fade in Image Plane when close to end
+                if (t > 0.8) {
+                   // Position image plane exactly in front of camera
+                   imagePlane.position.copy(camera.position);
+                   imagePlane.quaternion.copy(camera.quaternion);
+                   imagePlane.translateZ(-5); // 5 units in front
+                   imagePlane.lookAt(camera.position); // Face camera
+                   
+                   imagePlane.material.opacity = (t - 0.8) * 5.0; // Fade from 0 to 1
+                } else {
+                   imagePlane.material.opacity = 0;
+                }
+
+                if (t >= 1.0) {
+                    isTransitioning = false;
+                    controls.target.copy(camera.position).add(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion));
+                }
+            } else {
+                controls.update();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
