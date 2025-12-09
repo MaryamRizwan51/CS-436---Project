@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CS436 Virtual Tour</title>
+    <title>CS436 Virtual Tour - Fixed</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         #info {
@@ -12,16 +12,36 @@
         }
         #controls {
             position: absolute; bottom: 20px; left: 20px; color: white; z-index: 10;
-            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px;
+            background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
+            max-width: 300px;
         }
-        button { cursor: pointer; padding: 5px 10px; font-size: 14px; }
+        button { 
+            cursor: pointer; padding: 8px 15px; font-size: 14px; 
+            margin: 5px; background: #4CAF50; color: white; border: none;
+            border-radius: 4px; transition: background 0.3s;
+        }
+        button:hover { background: #45a049; }
         #loading {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: white; font-size: 24px; font-weight: bold; text-align: center;
-            background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
+            background: rgba(0,0,0,0.7); padding: 30px; border-radius: 10px;
+        }
+        .status { font-size: 12px; margin-top: 10px; color: #aaa; }
+        #imageOverlay {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 400px;
+            height: 300px;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            border: 3px solid white;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            border-radius: 8px;
         }
     </style>
-    <!-- Import Three.js and Loaders from CDN -->
     <script type="importmap">
         {
             "imports": {
@@ -33,169 +53,179 @@
 </head>
 <body>
     <div id="info">
-        <h2>CS436 Virtual Tour</h2>
-        <p>Click on a green camera cone to fly to that view.<br>
-        Drag to rotate | Scroll to zoom</p>
+        <h2>CS436 Virtual Tour - Multi-Area Navigation</h2>
+        <p>Click on camera cones to navigate between views<br>
+        Green = Area 1 | Blue = Area 2 (Aligned) | Red = Area 3 (Far region)</p>
     </div>
     <div id="loading">Loading 3D Scene...</div>
+    
+    <img id="imageOverlay" alt="View">
     
     <div id="controls">
         <button id="toggle-cloud">Toggle Point Cloud</button>
         <button id="toggle-cameras">Toggle Cameras</button>
-        <div id="current-img" style="margin-top:10px; font-size:12px;">View: None</div>
+        <button id="reset-view">Reset View</button>
+        <div class="status" id="current-view">Current: Overview</div>
+        <div class="status" id="camera-info">Cameras loaded: 0</div>
     </div>
 
-    <!-- MAIN APP SCRIPT -->
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 
-        // --- GLOBAL VARIABLES ---
+        // CAMERA DATA - Embedded from your JSON
+        const CAMERAS_DATA = [{"id":0,"filename":"photo1.jpeg","matrix":[0.9588199013572606,-0.025621217776752702,-0.28285676580362945,2.0535466075981623,0.024958158049772076,0.9996708022109895,-0.00594790329440252,0.15830438097421717,0.28291604250734115,-0.001356615816352797,0.9591437183683743,-0.04571203684909529,0.0,0.0,0.0,1.0]},{"id":1,"filename":"photo2.jpeg","matrix":[0.9106329042835111,0.03279969684560319,-0.41191248284437104,2.346271338923942,-0.037007129770577296,0.999312490606936,-0.002240192649354705,0.25267657728430143,0.41155581150352055,0.017283691845178778,0.9112206582457837,0.2918906769441321,0.0,0.0,0.0,1.0]},{"id":2,"filename":"photo3.jpeg","matrix":[0.9960825528772672,0.045877638022682576,0.07559623127488647,1.088816706137724,-0.044600276219611795,0.9988335929453694,-0.018500512559884122,0.34296719607759646,-0.07635681511588041,0.015056424984165713,0.9969668704887115,0.17544743232599236,0.0,0.0,0.0,1.0]},{"id":3,"filename":"photo4.jpeg","matrix":[0.9544985182491881,0.02072721896120476,-0.2974944723087114,2.3954411656289594,-0.018477483485705097,0.9997754691702088,0.010372745515253136,0.15523041035194096,0.2976426737955092,-0.004403821025312255,0.9546671907509116,0.4685997159902916,0.0,0.0,0.0,1.0]},{"id":4,"filename":"photo5.jpeg","matrix":[0.991119873011182,-0.013192531071823539,-0.13231535982726184,2.3781039507362216,0.012654161350447758,0.9999078831278864,-0.004908916298569615,0.15913605570154765,0.13236793238097982,0.0031909845860641156,0.9911955145653939,0.5463615455288824,0.0,0.0,0.0,1.0]},{"id":5,"filename":"photo6.jpeg","matrix":[0.9976551263381638,-0.05777519095720802,0.03669163666342589,2.234237333582745,0.0591404401986439,0.9975532403511109,-0.03728191247923236,0.20369351070012684,-0.03444789143464858,0.0393644506484806,0.9986309542573021,0.7653736824706326,0.0,0.0,0.0,1.0]},{"id":6,"filename":"photo7.jpeg","matrix":[0.9735714225024017,-0.07251684863046705,0.21656405969448445,2.162001634398523,0.08184649484562574,0.99605059556316,-0.03441456609866521,0.20655190917957636,-0.21321312475580684,0.05123004726701281,0.9756616450844443,0.7778691990432577,0.0,0.0,0.0,1.0]},{"id":7,"filename":"photo8.jpeg","matrix":[0.9271316687626315,-0.09630270304614955,0.36215004923846633,2.199362262582741,0.13174988793947662,0.9884845777493324,-0.07443256397343323,0.19984775418879827,-0.35081168139808827,0.11672201565141435,0.9291432264494626,1.0739603307399497,0.0,0.0,0.0,1.0]},{"id":8,"filename":"photo9.jpeg","matrix":[0.8811234668977882,-0.11953653613073013,0.4575286358381178,2.273466377438374,0.15937350062746303,0.9859854874362942,-0.04932246813331116,0.008915735460737453,-0.445220758028835,0.11637712444840738,0.8878259072168088,1.1983557390489117,0.0,0.0,0.0,1.0]},{"id":9,"filename":"photo10.jpeg","matrix":[0.992863996294594,-0.0009402742265305818,-0.11924848320338326,3.2317451460652133,-0.0076137779182699995,0.9974289218733813,-0.07125711330327203,0.1432139603163977,0.11900888726368263,0.07165655374690445,0.9903041063518706,-1.4069491526060045,0.0,0.0,0.0,1.0]},{"id":10,"filename":"photo11.jpeg","matrix":[0.9530621934791458,0.023013720591787364,-0.3018986982834515,2.0704954783826355,-0.047492069560031824,0.9961272926645963,-0.0739927032727321,0.36011044582389684,0.29902668558111073,0.08485744206152236,0.9504642317505435,-0.10884989254497887,0.0,0.0,0.0,1.0]},{"id":11,"filename":"photo12.jpeg","matrix":[0.9693498291564551,-0.16829681903737426,-0.17898907624839092,2.413459971577553,0.1587210481342388,0.9850717962336853,-0.066642217430915,0.4654741239768608,0.1875327640534306,0.036190288294541004,0.9815914249012357,-1.3902836529275304,0.0,0.0,0.0,1.0]},{"id":12,"filename":"photo13.jpeg","matrix":[0.9209536832877776,-0.38965313507449073,-0.0038402558894898905,2.2255162484580087,0.388726402096925,0.9193602628880702,-0.06056807191217309,0.5067267592126132,0.027131117770114326,0.05428758006210185,0.9981566816384816,-0.7990828534683504,0.0,0.0,0.0,1.0]},{"id":13,"filename":"photo14.jpeg","matrix":[0.8540462828840831,-0.5060279617889797,0.12058461170303511,2.1751242961112442,0.5088985669820038,0.8607896238454725,0.007966931883282404,0.48286695732778523,-0.107829472852017,0.054561207534847896,0.9926710831976499,-0.5468258837744863,0.0,0.0,0.0,1.0]},{"id":14,"filename":"photo15.jpeg","matrix":[0.7320269960278865,-0.5820670330060768,0.3540260529592303,2.2020347648941296,0.5503659938684465,0.8115288102040493,0.1962607016241343,0.5784644349290116,-0.4015392258292907,0.051175768643989615,0.9144108982422022,-0.2826035917157185,0.0,0.0,0.0,1.0]},{"id":15,"filename":"photo16.jpeg","matrix":[0.4370569406314115,-0.7508521298776539,0.49517906832185604,-0.13036379922252853,0.6701493529567416,0.6390482200557126,0.3775145257805135,-1.3823842790339471,-0.5999008879619793,0.16684858855206466,0.7824835289772,-3.952957780397362,0.0,0.0,0.0,1.0]},{"id":16,"filename":"photo17.jpeg","matrix":[0.7334023578839886,-0.5596295859876788,0.3859218935710509,2.0666575543146006,0.5647246306317312,0.8175895827335775,0.11239824626474243,0.4937723415165068,-0.3784271039553866,0.13550645996702262,0.9156587389956724,-0.6974965293631313,0.0,0.0,0.0,1.0]},{"id":17,"filename":"photo18.jpeg","matrix":[0.793432776773161,-0.5685457863864294,0.21730190409719735,2.1108221112173364,0.58301177588457,0.8124580076612443,-0.0030421977321325217,0.5119564508404818,-0.17481904336184545,0.1291033484049045,0.9760997016230929,-1.034966038796982,0.0,0.0,0.0,1.0]},{"id":18,"filename":"photo19.jpeg","matrix":[0.8559563203339837,-0.50572679546571,0.10760662632148132,2.2210729802421336,0.5136732707342905,0.8554893032046867,-0.06540506888227932,0.5503050782322385,-0.058979221878922,0.11125852978690445,0.9920398131810102,-0.6324754051608533,0.0,0.0,0.0,1.0]},{"id":19,"filename":"photo20.jpeg","matrix":[0.960336697636261,-0.25073110067520565,-0.12201369729370817,2.2660669646060576,0.23635146193481082,0.964112188995055,-0.12093665065827239,0.4770616979171585,0.14795747231673848,0.08730178798491606,0.9851329779274869,-0.26363296914383827,0.0,0.0,0.0,1.0]},{"id":20,"filename":"photo21.jpeg","matrix":[0.922480737943976,-0.30877193736269964,-0.23170925492872008,2.5417974431398496,0.2846271632152135,0.9494905100591006,-0.13211793696455137,0.6082479763524603,0.26080005000459217,0.05592550406562276,0.9637715870021322,-1.1701184810170002,0.0,0.0,0.0,1.0]},{"id":21,"filename":"photo22.jpeg","matrix":[0.869534307535498,-0.007911734371105183,-0.49380916605304465,2.4312329719765873,-0.04744306337945853,0.9939093486058937,-0.09946538338025124,0.3470003111605893,0.4915884902598259,0.10991638282371173,0.8638629202778738,0.500467839149217,0.0,0.0,0.0,1.0]},{"id":22,"filename":"photo23.jpeg","matrix":[0.8157527042856655,0.1307856070775164,-0.5634204916685132,2.7434221697738286,-0.23385156737309612,0.9655112432184593,-0.11446171261994756,0.4252916232450973,0.5290188747934896,0.2251292166736931,0.818202826878592,-0.1572030000232906,0.0,0.0,0.0,1.0]},{"id":23,"filename":"photo24.jpeg","matrix":[0.7032999834100414,0.24508755325405948,-0.6673089423762987,2.683196090445545,-0.35988260712972225,0.9322679396692121,-0.03689170300266039,0.40211075874026736,0.6130690356076953,0.26609881605309904,0.7438667741431858,-0.2535819588964814,0.0,0.0,0.0,1.0]},{"id":24,"filename":"photo25.jpeg","matrix":[0.5790109135783904,0.28578131419486913,-0.7635937417332407,3.781267728288763,-0.41823709194467507,0.9080539646246842,0.022709739123432788,0.20371105138141368,0.6998743436351835,0.30621403917267814,0.6452975014168073,-1.5845453050786984,0.0,0.0,0.0,1.0]},{"id":25,"filename":"photo26.jpeg","matrix":[0.4748595235687589,0.289761910614186,-0.8309912562917057,4.0701582164320955,-0.4229270159854423,0.9031972187196019,0.07326338271486603,0.2713282103759246,0.7717779292164948,0.31665883732242817,0.5514399411721165,-1.6317002343089653,0.0,0.0,0.0,1.0]},{"id":26,"filename":"photo27.jpeg","matrix":[0.26061430827305554,0.397331594304143,-0.8798907810013039,8.237732229836002,-0.5255597809348158,0.8228979756795541,0.21593016993055866,-1.3608915154829755,0.8098562211819484,0.4061607142378735,0.4232804923719913,-3.1004104592157127,0.0,0.0,0.0,1.0]},{"id":27,"filename":"photo28.jpeg","matrix":[0.1940020964011392,0.42990872538781055,-0.8817832355105143,4.659227321545732,-0.5351986387287493,0.7996904726423687,0.27213519630492206,-1.2896588785940466,0.8221469477501311,0.4191343887113689,0.3852281927698053,-1.9201788303936045,0.0,0.0,0.0,1.0]},{"id":28,"filename":"photo29.jpeg","matrix":[0.07175571313197725,0.43898681928839206,-0.895623631959308,2.080064313864754,-0.5508381835353884,0.7660260028860021,0.3313328514680198,-0.12299159775876009,0.8315217454717319,0.469568669518693,0.2967774442475188,-0.5425239521125537,0.0,0.0,0.0,1.0]},{"id":29,"filename":"photo30.jpeg","matrix":[-0.09134486619396158,0.39586880637855987,-0.9137527037204438,14.044268625133942,-0.5149082134183206,0.7666278573107226,0.38360299809767295,-6.121855890265784,0.8523647383452463,0.5055389367116883,0.13380858079381586,-4.523739484715055,0.0,0.0,0.0,1.0]},{"id":30,"filename":"photo31.jpeg","matrix":[-0.2511545048192985,0.41504162933009736,-0.874449461451027,16.163993412774783,-0.46534825356979354,0.7403813491567547,0.4850633574290754,-6.6752945439739,0.8487475582341995,0.5287493770623678,0.007188786242613583,-4.453497602903619,0.0,0.0,0.0,1.0]},{"id":31,"filename":"photo32.jpeg","matrix":[-0.46419098042392176,0.380645724029862,-0.7997721966102975,27.500379494121642,-0.37511449208894365,0.7334899291480932,0.5668171148290947,-14.14910457647126,0.8023813628929402,0.5631175335719067,-0.19769368190703637,0.026759167378598483,0.0,0.0,0.0,1.0]},{"id":32,"filename":"photo33.jpeg","matrix":[-0.6078813800191061,0.3493611417646801,-0.7130406863924009,20.777924362339892,-0.2930757728667564,0.735876941138833,0.6104029151787423,-12.060108119993933,0.7379612585933089,0.5800275166964346,-0.34493660387141667,0.6605888861636809,0.0,0.0,0.0,1.0]},{"id":33,"filename":"photo34.jpeg","matrix":[0.9936484279789514,0.0595437135030424,0.09548480380262718,2.548847161315141,-0.04335029237466388,0.9855920091193662,-0.16349050036953966,-0.33280422476664145,-0.10384389113467271,0.15831278451950395,0.9819131878795047,1.647045050287055,0.0,0.0,0.0,1.0]},{"id":34,"filename":"photo35.jpeg","matrix":[0.9800636580887988,0.04001363410111135,0.19461278267273366,2.226141253125479,-0.043408471209646624,0.9989700830095257,0.013209007501791036,0.18972492650855016,-0.19388380726828003,-0.021393511585606293,0.9807912045594581,0.9849669242697346,0.0,0.0,0.0,1.0]}];
+
         let scene, camera, renderer, controls;
-        let pointCloud, cameraGroup;
-        let camerasData = [];
+        let pointCloud;
+        let area1Group, area2Group, area3Group;
         let raycaster = new THREE.Raycaster();
         let mouse = new THREE.Vector2();
-        
-        // Animation variables
         let isTransitioning = false;
         let transitionStartTime;
         let startPos = new THREE.Vector3();
         let startQuat = new THREE.Quaternion();
         let targetPos = new THREE.Vector3();
         let targetQuat = new THREE.Quaternion();
-        const TRANSITION_DURATION = 1500; // ms
-
-        // Image Overlay (The "Photo" plane)
-        let imagePlane;
+        const TRANSITION_DURATION = 1500;
+        const INITIAL_CAMERA_POS = new THREE.Vector3(5, 8, 15);
 
         init();
         animate();
 
         function init() {
-            // 1. Setup Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111); // Dark grey background
+            scene.background = new THREE.Color(0x1a1a1a);
+            scene.fog = new THREE.Fog(0x1a1a1a, 20, 100);
 
-            // 2. Setup Camera
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 5, 10); // Initial overview position
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+            camera.position.copy(INITIAL_CAMERA_POS);
 
-            // 3. Setup Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
-            // 4. Controls (Orbit around the scene)
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(2, 0, 0);
 
-            // 5. Lights (Simple ambient)
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(10, 10, 10);
+            scene.add(directionalLight);
 
-            // 6. Groups
-            cameraGroup = new THREE.Group();
-            scene.add(cameraGroup);
+            area1Group = new THREE.Group();
+            area1Group.name = 'Area 1';
+            scene.add(area1Group);
 
-            // 7. Load Data
+            area2Group = new THREE.Group();
+            area2Group.name = 'Area 2';
+            scene.add(area2Group);
+
+            area3Group = new THREE.Group();
+            area3Group.name = 'Area 3';
+            scene.add(area3Group);
+
+            const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+            scene.add(gridHelper);
+
             loadResources();
 
-            // 8. Event Listeners
             window.addEventListener('resize', onWindowResize);
             window.addEventListener('pointerdown', onPointerDown);
             
-            // UI Buttons
             document.getElementById('toggle-cloud').onclick = () => {
                 if(pointCloud) pointCloud.visible = !pointCloud.visible;
             };
             document.getElementById('toggle-cameras').onclick = () => {
-                cameraGroup.visible = !cameraGroup.visible;
+                area1Group.visible = !area1Group.visible;
+                area2Group.visible = !area2Group.visible;
+                area3Group.visible = !area3Group.visible;
             };
-            
-            // Setup Image Plane (Hidden initially)
-            setupImagePlane();
+            document.getElementById('reset-view').onclick = resetView;
         }
 
-        function setupImagePlane() {
-            const geometry = new THREE.PlaneGeometry(16, 9); // Aspect ratio 16:9 approx
-            const material = new THREE.MeshBasicMaterial({ 
-                color: 0xffffff, 
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.0 // Invisible start
-            });
-            imagePlane = new THREE.Mesh(geometry, material);
-            // Put it slightly in front of the camera so it doesn't clip
-            scene.add(imagePlane);
+        function resetView() {
+            camera.position.copy(INITIAL_CAMERA_POS);
+            controls.target.set(2, 0, 0);
+            document.getElementById('imageOverlay').style.opacity = '0';
+            document.getElementById('current-view').innerText = 'Current: Overview';
         }
 
         function loadResources() {
-            const manager = new THREE.LoadingManager();
-            manager.onLoad = function () {
-                document.getElementById('loading').style.display = 'none';
-            };
-            
-            manager.onError = function (url) {
-                 console.error('There was an error loading ' + url);
-                 document.getElementById('loading').innerHTML = `Error loading: ${url}<br><br>Make sure you are running a Local Server (Step 3).<br>This cannot run in the Preview window.`;
-                 document.getElementById('loading').style.color = 'red';
-            };
+            const plyLoader = new PLYLoader();
+            plyLoader.load('./point_cloud.ply',
+                function (geometry) {
+                    const material = new THREE.PointsMaterial({ 
+                        size: 0.03,
+                        vertexColors: true 
+                    });
+                    pointCloud = new THREE.Points(geometry, material);
+                    scene.add(pointCloud);
+                },
+                undefined,
+                function(error) {
+                    console.log('Point cloud not found - continuing with cameras only');
+                }
+            );
 
-            // A. Load Point Cloud
-            // We use ./ to ensure it looks in the current directory
-            const plyLoader = new PLYLoader(manager);
-            plyLoader.load('./point_cloud.ply', function (geometry) {
-                // Point Cloud Material (Vertex Colors)
-                const material = new THREE.PointsMaterial({ 
-                    size: 0.05, 
-                    vertexColors: true 
-                });
-                pointCloud = new THREE.Points(geometry, material);
-                
-                // IMPORTANT: SfM usually centers around 0,0,0, but check orientation
-                // Open3D PLY is usually Y-up or Z-up. We might need rotation.
-                // Try rotating X by 180 or Z by 180 if it looks upside down.
-                pointCloud.rotation.x = Math.PI; 
-                
-                scene.add(pointCloud);
-            }, undefined, function(error) {
-                console.error("PLY Loader Error:", error);
-            });
-
-            // B. Load Cameras JSON
-            fetch('./cameras.json')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    camerasData = data;
-                    createCameraFrustums();
-                })
-                .catch(err => {
-                    console.error("Could not load cameras.json", err);
-                    document.getElementById('loading').innerHTML = "Error loading cameras.json.<br>Check console for details.";
-                });
+            createCameraVisualization();
+            document.getElementById('loading').style.display = 'none';
         }
 
-        function createCameraFrustums() {
-            // Geometry for the camera representation (a small cone)
-            const geom = new THREE.ConeGeometry(0.2, 0.5, 4);
-            geom.rotateX(Math.PI / 2); // Point cone along Z axis
+        function createCameraVisualization() {
+            const area1Cams = [];
+            const area2Cams = [];
+            const area3Cams = [];
 
-            camerasData.forEach((camData, index) => {
-                const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+            CAMERAS_DATA.forEach(camData => {
+                if (camData.id <= 28) {
+                    area1Cams.push(camData);
+                } else if (camData.id <= 32) {
+                    area2Cams.push(camData);
+                } else {
+                    area3Cams.push(camData);
+                }
+            });
+
+            createAreaCameras(area1Cams, area1Group, 0x00ff00);
+            createAreaCameras(area2Cams, area2Group, 0x0088ff);
+            createAreaCameras(area3Cams, area3Group, 0xff0000);
+
+            const transformMatrix = new THREE.Matrix4();
+            transformMatrix.makeRotationY(Math.PI);
+            transformMatrix.setPosition(-10, 0, 5);
+            area2Group.applyMatrix4(transformMatrix);
+
+            const transform3 = new THREE.Matrix4();
+            transform3.makeRotationY(Math.PI / 4);
+            transform3.setPosition(0, -1, 3);
+            area3Group.applyMatrix4(transform3);
+
+            document.getElementById('camera-info').innerText = 
+                `Cameras: Area1=${area1Cams.length} Area2=${area2Cams.length} Area3=${area3Cams.length}`;
+        }
+
+        function createAreaCameras(cameras, group, color) {
+            const geom = new THREE.ConeGeometry(0.15, 0.4, 4);
+            geom.rotateX(Math.PI / 2);
+
+            cameras.forEach(camData => {
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: color, 
+                    wireframe: false,
+                    transparent: true,
+                    opacity: 0.8
+                });
                 const mesh = new THREE.Mesh(geom, material);
 
-                // Apply the matrix from JSON
                 const matrix = new THREE.Matrix4();
                 matrix.fromArray(camData.matrix);
                 
-                // Decompose to apply to mesh
                 const pos = new THREE.Vector3();
                 const quat = new THREE.Quaternion();
                 const scale = new THREE.Vector3();
@@ -203,27 +233,29 @@
 
                 mesh.position.copy(pos);
                 mesh.quaternion.copy(quat);
-                
-                // Fix orientation: SfM cameras often look down +Z or -Z. 
-                // We might need to adjust the mesh rotation to match "looking forward".
-                // This usually requires trial and error depending on the SfM system.
-                // For OpenCV standard (Z-forward), we usually rotate the mesh 180 on X.
-                mesh.rotateX(Math.PI); 
 
-                mesh.userData = { id: index, filename: camData.filename };
-                cameraGroup.add(mesh);
+                mesh.userData = { 
+                    id: camData.id, 
+                    filename: camData.filename,
+                    originalMatrix: matrix.clone()
+                };
+                
+                group.add(mesh);
             });
         }
 
         function onPointerDown(event) {
-            // Calculate mouse position
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
 
-            // Check intersections with Camera Group
-            const intersects = raycaster.intersectObjects(cameraGroup.children);
+            const allCameras = [
+                ...area1Group.children,
+                ...area2Group.children,
+                ...area3Group.children
+            ];
+            const intersects = raycaster.intersectObjects(allCameras);
 
             if (intersects.length > 0) {
                 const selectedCam = intersects[0].object;
@@ -234,28 +266,28 @@
         function startTransitionTo(targetMesh) {
             if (isTransitioning) return;
 
-            const camIndex = targetMesh.userData.id;
             const filename = targetMesh.userData.filename;
-            
-            document.getElementById('current-img').innerText = "Flying to: " + filename;
+            document.getElementById('current-view').innerText = `Flying to: ${filename}`;
 
-            // Setup Transition
             isTransitioning = true;
             transitionStartTime = performance.now();
             
             startPos.copy(camera.position);
             startQuat.copy(camera.quaternion);
 
-            // Target Position: We want to be exactly at the camera pose
-            targetPos.copy(targetMesh.position);
-            targetQuat.copy(targetMesh.quaternion);
-            
-            // Load the image texture for the overlay
-            // We do this while flying
-            new THREE.TextureLoader().load(filename, function(texture) {
-                imagePlane.material.map = texture;
-                imagePlane.material.needsUpdate = true;
-            });
+            const worldPos = new THREE.Vector3();
+            targetMesh.getWorldPosition(worldPos);
+            targetPos.copy(worldPos);
+
+            const worldQuat = new THREE.Quaternion();
+            targetMesh.getWorldQuaternion(worldQuat);
+            targetQuat.copy(worldQuat);
+
+            const imgOverlay = document.getElementById('imageOverlay');
+            imgOverlay.src = filename;
+            imgOverlay.onerror = () => {
+                console.warn(`Image not found: ${filename}`);
+            };
         }
 
         function animate() {
@@ -266,32 +298,25 @@
             if (isTransitioning) {
                 const elapsed = now - transitionStartTime;
                 const t = Math.min(elapsed / TRANSITION_DURATION, 1.0);
-                
-                // Smooth Step interpolation
                 const smoothT = t * t * (3 - 2 * t);
 
-                // Lerp Position
                 camera.position.lerpVectors(startPos, targetPos, smoothT);
-                
-                // Slerp Rotation
                 camera.quaternion.slerpQuaternions(startQuat, targetQuat, smoothT);
 
-                // Fade in Image Plane when close to end
-                if (t > 0.8) {
-                   // Position image plane exactly in front of camera
-                   imagePlane.position.copy(camera.position);
-                   imagePlane.quaternion.copy(camera.quaternion);
-                   imagePlane.translateZ(-5); // 5 units in front
-                   imagePlane.lookAt(camera.position); // Face camera
-                   
-                   imagePlane.material.opacity = (t - 0.8) * 5.0; // Fade from 0 to 1
+                const imgOverlay = document.getElementById('imageOverlay');
+                if (t > 0.7) {
+                    imgOverlay.style.opacity = ((t - 0.7) / 0.3).toString();
                 } else {
-                   imagePlane.material.opacity = 0;
+                    imgOverlay.style.opacity = '0';
                 }
 
                 if (t >= 1.0) {
                     isTransitioning = false;
-                    controls.target.copy(camera.position).add(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion));
+                    controls.target.copy(camera.position).add(
+                        new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+                    );
+                    document.getElementById('current-view').innerText = 
+                        `Current: ${document.getElementById('imageOverlay').src.split('/').pop()}`;
                 }
             } else {
                 controls.update();
@@ -305,6 +330,535 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
+    </script>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CS436 Virtual Tour - Interactive Navigation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden; 
+            background: #000; 
+        }
+
+        /* Main Image Display */
+        #mainImage {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+            z-index: 1;
+        }
+        #mainImage.visible { opacity: 1; }
+
+        /* Header Info */
+        #header {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 12px;
+            text-align: center;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        #header h1 { 
+            font-size: 24px; 
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        #header p { 
+            font-size: 13px; 
+            opacity: 0.9;
+        }
+
+        /* Hotspot Container */
+        #hotspotsContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* Individual Hotspot */
+        .hotspot {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            background: radial-gradient(circle, rgba(102, 204, 255, 0.9) 0%, rgba(51, 153, 255, 0.7) 100%);
+            border: 3px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            cursor: pointer;
+            pointer-events: auto;
+            box-shadow: 0 4px 20px rgba(102, 204, 255, 0.6);
+            transition: all 0.3s ease;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .hotspot:hover {
+            transform: scale(1.2);
+            box-shadow: 0 6px 30px rgba(102, 204, 255, 1);
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        /* Control Panel */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            min-width: 280px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        .control-btn {
+            width: 100%;
+            padding: 12px;
+            margin: 6px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status-text {
+            font-size: 12px;
+            padding: 8px;
+            margin: 4px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #e0e0e0;
+        }
+
+        /* Mini Map */
+        #miniMap {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 280px;
+            height: 220px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        /* Progress Bar */
+        #progressBar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.6s ease;
+            z-index: 101;
+        }
+
+        /* Loading Screen */
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            flex-direction: column;
+        }
+        #loading h2 {
+            color: white;
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 3D Canvas (hidden by default) */
+        #canvas3d {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading">
+        <h2>🏛️ Loading Virtual Tour...</h2>
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Header -->
+    <div id="header">
+        <h1>CS436 Virtual Tour</h1>
+        <p>Click hotspots (→) to navigate between viewpoints</p>
+    </div>
+
+    <!-- Main Image -->
+    <img id="mainImage" alt="Current View">
+
+    <!-- Hotspots Container -->
+    <div id="hotspotsContainer"></div>
+
+    <!-- Mini Map -->
+    <canvas id="miniMap"></canvas>
+
+    <!-- Progress Bar -->
+    <div id="progressBar"></div>
+
+    <!-- Control Panel -->
+    <div id="controls">
+        <button class="control-btn" id="prevBtn">⬅️ Previous View</button>
+        <button class="control-btn" id="nextBtn">Next View ➡️</button>
+        <button class="control-btn" id="toggle3dBtn">🌐 Toggle 3D View</button>
+        <div class="status-text" id="currentView">Loading...</div>
+        <div class="status-text" id="cameraCount">0 / 35 viewpoints</div>
+    </div>
+
+    <!-- 3D Canvas (for optional 3D view) -->
+    <canvas id="canvas3d"></canvas>
+
+    <script type="module">
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+        import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/PLYLoader.js';
+
+        // Camera data from your reconstruction
+        const CAMERAS = [{"id":0,"filename":"photo1.jpeg","matrix":[0.9588199013572606,-0.025621217776752702,-0.28285676580362945,2.0535466075981623,0.024958158049772076,0.9996708022109895,-0.00594790329440252,0.15830438097421717,0.28291604250734115,-0.001356615816352797,0.9591437183683743,-0.04571203684909529,0.0,0.0,0.0,1.0]},{"id":1,"filename":"photo2.jpeg","matrix":[0.9106329042835111,0.03279969684560319,-0.41191248284437104,2.346271338923942,-0.037007129770577296,0.999312490606936,-0.002240192649354705,0.25267657728430143,0.41155581150352055,0.017283691845178778,0.9112206582457837,0.2918906769441321,0.0,0.0,0.0,1.0]},{"id":2,"filename":"photo3.jpeg","matrix":[0.9960825528772672,0.045877638022682576,0.07559623127488647,1.088816706137724,-0.044600276219611795,0.9988335929453694,-0.018500512559884122,0.34296719607759646,-0.07635681511588041,0.015056424984165713,0.9969668704887115,0.17544743232599236,0.0,0.0,0.0,1.0]},{"id":3,"filename":"photo4.jpeg","matrix":[0.9544985182491881,0.02072721896120476,-0.2974944723087114,2.3954411656289594,-0.018477483485705097,0.9997754691702088,0.010372745515253136,0.15523041035194096,0.2976426737955092,-0.004403821025312255,0.9546671907509116,0.4685997159902916,0.0,0.0,0.0,1.0]},{"id":4,"filename":"photo5.jpeg","matrix":[0.991119873011182,-0.013192531071823539,-0.13231535982726184,2.3781039507362216,0.012654161350447758,0.9999078831278864,-0.004908916298569615,0.15913605570154765,0.13236793238097982,0.0031909845860641156,0.9911955145653939,0.5463615455288824,0.0,0.0,0.0,1.0]},{"id":5,"filename":"photo6.jpeg","matrix":[0.9976551263381638,-0.05777519095720802,0.03669163666342589,2.234237333582745,0.0591404401986439,0.9975532403511109,-0.03728191247923236,0.20369351070012684,-0.03444789143464858,0.0393644506484806,0.9986309542573021,0.7653736824706326,0.0,0.0,0.0,1.0]},{"id":6,"filename":"photo7.jpeg","matrix":[0.9735714225024017,-0.07251684863046705,0.21656405969448445,2.162001634398523,0.08184649484562574,0.99605059556316,-0.03441456609866521,0.20655190917957636,-0.21321312475580684,0.05123004726701281,0.9756616450844443,0.7778691990432577,0.0,0.0,0.0,1.0]},{"id":7,"filename":"photo8.jpeg","matrix":[0.9271316687626315,-0.09630270304614955,0.36215004923846633,2.199362262582741,0.13174988793947662,0.9884845777493324,-0.07443256397343323,0.19984775418879827,-0.35081168139808827,0.11672201565141435,0.9291432264494626,1.0739603307399497,0.0,0.0,0.0,1.0]},{"id":8,"filename":"photo9.jpeg","matrix":[0.8811234668977882,-0.11953653613073013,0.4575286358381178,2.273466377438374,0.15937350062746303,0.9859854874362942,-0.04932246813331116,0.008915735460737453,-0.445220758028835,0.11637712444840738,0.8878259072168088,1.1983557390489117,0.0,0.0,0.0,1.0]},{"id":9,"filename":"photo10.jpeg","matrix":[0.992863996294594,-0.0009402742265305818,-0.11924848320338326,3.2317451460652133,-0.0076137779182699995,0.9974289218733813,-0.07125711330327203,0.1432139603163977,0.11900888726368263,0.07165655374690445,0.9903041063518706,-1.4069491526060045,0.0,0.0,0.0,1.0]},{"id":10,"filename":"photo11.jpeg","matrix":[0.9530621934791458,0.023013720591787364,-0.3018986982834515,2.0704954783826355,-0.047492069560031824,0.9961272926645963,-0.0739927032727321,0.36011044582389684,0.29902668558111073,0.08485744206152236,0.9504642317505435,-0.10884989254497887,0.0,0.0,0.0,1.0]},{"id":11,"filename":"photo12.jpeg","matrix":[0.9693498291564551,-0.16829681903737426,-0.17898907624839092,2.413459971577553,0.1587210481342388,0.9850717962336853,-0.066642217430915,0.4654741239768608,0.1875327640534306,0.036190288294541004,0.9815914249012357,-1.3902836529275304,0.0,0.0,0.0,1.0]},{"id":12,"filename":"photo13.jpeg","matrix":[0.9209536832877776,-0.38965313507449073,-0.0038402558894898905,2.2255162484580087,0.388726402096925,0.9193602628880702,-0.06056807191217309,0.5067267592126132,0.027131117770114326,0.05428758006210185,0.9981566816384816,-0.7990828534683504,0.0,0.0,0.0,1.0]},{"id":13,"filename":"photo14.jpeg","matrix":[0.8540462828840831,-0.5060279617889797,0.12058461170303511,2.1751242961112442,0.5088985669820038,0.8607896238454725,0.007966931883282404,0.48286695732778523,-0.107829472852017,0.054561207534847896,0.9926710831976499,-0.5468258837744863,0.0,0.0,0.0,1.0]},{"id":14,"filename":"photo15.jpeg","matrix":[0.7320269960278865,-0.5820670330060768,0.3540260529592303,2.2020347648941296,0.5503659938684465,0.8115288102040493,0.1962607016241343,0.5784644349290116,-0.4015392258292907,0.051175768643989615,0.9144108982422022,-0.2826035917157185,0.0,0.0,0.0,1.0]},{"id":15,"filename":"photo16.jpeg","matrix":[0.4370569406314115,-0.7508521298776539,0.49517906832185604,-0.13036379922252853,0.6701493529567416,0.6390482200557126,0.3775145257805135,-1.3823842790339471,-0.5999008879619793,0.16684858855206466,0.7824835289772,-3.952957780397362,0.0,0.0,0.0,1.0]},{"id":16,"filename":"photo17.jpeg","matrix":[0.7334023578839886,-0.5596295859876788,0.3859218935710509,2.0666575543146006,0.5647246306317312,0.8175895827335775,0.11239824626474243,0.4937723415165068,-0.3784271039553866,0.13550645996702262,0.9156587389956724,-0.6974965293631313,0.0,0.0,0.0,1.0]},{"id":17,"filename":"photo18.jpeg","matrix":[0.793432776773161,-0.5685457863864294,0.21730190409719735,2.1108221112173364,0.58301177588457,0.8124580076612443,-0.0030421977321325217,0.5119564508404818,-0.17481904336184545,0.1291033484049045,0.9760997016230929,-1.034966038796982,0.0,0.0,0.0,1.0]},{"id":18,"filename":"photo19.jpeg","matrix":[0.8559563203339837,-0.50572679546571,0.10760662632148132,2.2210729802421336,0.5136732707342905,0.8554893032046867,-0.06540506888227932,0.5503050782322385,-0.058979221878922,0.11125852978690445,0.9920398131810102,-0.6324754051608533,0.0,0.0,0.0,1.0]},{"id":19,"filename":"photo20.jpeg","matrix":[0.960336697636261,-0.25073110067520565,-0.12201369729370817,2.2660669646060576,0.23635146193481082,0.964112188995055,-0.12093665065827239,0.4770616979171585,0.14795747231673848,0.08730178798491606,0.9851329779274869,-0.26363296914383827,0.0,0.0,0.0,1.0]},{"id":20,"filename":"photo21.jpeg","matrix":[0.922480737943976,-0.30877193736269964,-0.23170925492872008,2.5417974431398496,0.2846271632152135,0.9494905100591006,-0.13211793696455137,0.6082479763524603,0.26080005000459217,0.05592550406562276,0.9637715870021322,-1.1701184810170002,0.0,0.0,0.0,1.0]},{"id":21,"filename":"photo22.jpeg","matrix":[0.869534307535498,-0.007911734371105183,-0.49380916605304465,2.4312329719765873,-0.04744306337945853,0.9939093486058937,-0.09946538338025124,0.3470003111605893,0.4915884902598259,0.10991638282371173,0.8638629202778738,0.500467839149217,0.0,0.0,0.0,1.0]},{"id":22,"filename":"photo23.jpeg","matrix":[0.8157527042856655,0.1307856070775164,-0.5634204916685132,2.7434221697738286,-0.23385156737309612,0.9655112432184593,-0.11446171261994756,0.4252916232450973,0.5290188747934896,0.2251292166736931,0.818202826878592,-0.1572030000232906,0.0,0.0,0.0,1.0]},{"id":23,"filename":"photo24.jpeg","matrix":[0.7032999834100414,0.24508755325405948,-0.6673089423762987,2.683196090445545,-0.35988260712972225,0.9322679396692121,-0.03689170300266039,0.40211075874026736,0.6130690356076953,0.26609881605309904,0.7438667741431858,-0.2535819588964814,0.0,0.0,0.0,1.0]},{"id":24,"filename":"photo25.jpeg","matrix":[0.5790109135783904,0.28578131419486913,-0.7635937417332407,3.781267728288763,-0.41823709194467507,0.9080539646246842,0.022709739123432788,0.20371105138141368,0.6998743436351835,0.30621403917267814,0.6452975014168073,-1.5845453050786984,0.0,0.0,0.0,1.0]},{"id":25,"filename":"photo26.jpeg","matrix":[0.4748595235687589,0.289761910614186,-0.8309912562917057,4.0701582164320955,-0.4229270159854423,0.9031972187196019,0.07326338271486603,0.2713282103759246,0.7717779292164948,0.31665883732242817,0.5514399411721165,-1.6317002343089653,0.0,0.0,0.0,1.0]},{"id":26,"filename":"photo27.jpeg","matrix":[0.26061430827305554,0.397331594304143,-0.8798907810013039,8.237732229836002,-0.5255597809348158,0.8228979756795541,0.21593016993055866,-1.3608915154829755,0.8098562211819484,0.4061607142378735,0.4232804923719913,-3.1004104592157127,0.0,0.0,0.0,1.0]},{"id":27,"filename":"photo28.jpeg","matrix":[0.1940020964011392,0.42990872538781055,-0.8817832355105143,4.659227321545732,-0.5351986387287493,0.7996904726423687,0.27213519630492206,-1.2896588785940466,0.8221469477501311,0.4191343887113689,0.3852281927698053,-1.9201788303936045,0.0,0.0,0.0,1.0]},{"id":28,"filename":"photo29.jpeg","matrix":[0.07175571313197725,0.43898681928839206,-0.895623631959308,2.080064313864754,-0.5508381835353884,0.7660260028860021,0.3313328514680198,-0.12299159775876009,0.8315217454717319,0.469568669518693,0.2967774442475188,-0.5425239521125537,0.0,0.0,0.0,1.0]},{"id":29,"filename":"photo30.jpeg","matrix":[-0.09134486619396158,0.39586880637855987,-0.9137527037204438,14.044268625133942,-0.5149082134183206,0.7666278573107226,0.38360299809767295,-6.121855890265784,0.8523647383452463,0.5055389367116883,0.13380858079381586,-4.523739484715055,0.0,0.0,0.0,1.0]},{"id":30,"filename":"photo31.jpeg","matrix":[-0.2511545048192985,0.41504162933009736,-0.874449461451027,16.163993412774783,-0.46534825356979354,0.7403813491567547,0.4850633574290754,-6.6752945439739,0.8487475582341995,0.5287493770623678,0.007188786242613583,-4.453497602903619,0.0,0.0,0.0,1.0]},{"id":31,"filename":"photo32.jpeg","matrix":[-0.46419098042392176,0.380645724029862,-0.7997721966102975,27.500379494121642,-0.37511449208894365,0.7334899291480932,0.5668171148290947,-14.14910457647126,0.8023813628929402,0.5631175335719067,-0.19769368190703637,0.026759167378598483,0.0,0.0,0.0,1.0]},{"id":32,"filename":"photo33.jpeg","matrix":[-0.6078813800191061,0.3493611417646801,-0.7130406863924009,20.777924362339892,-0.2930757728667564,0.735876941138833,0.6104029151787423,-12.060108119993933,0.7379612585933089,0.5800275166964346,-0.34493660387141667,0.6605888861636809,0.0,0.0,0.0,1.0]},{"id":33,"filename":"photo34.jpeg","matrix":[0.9936484279789514,0.0595437135030424,0.09548480380262718,2.548847161315141,-0.04335029237466388,0.9855920091193662,-0.16349050036953966,-0.33280422476664145,-0.10384389113467271,0.15831278451950395,0.9819131878795047,1.647045050287055,0.0,0.0,0.0,1.0]},{"id":34,"filename":"photo35.jpeg","matrix":[0.9800636580887988,0.04001363410111135,0.19461278267273366,2.226141253125479,-0.043408471209646624,0.9989700830095257,0.013209007501791036,0.18972492650855016,-0.19388380726828003,-0.021393511585606293,0.9807912045594581,0.9849669242697346,0.0,0.0,0.0,1.0]}];
+
+        // State
+        let currentIndex = 0;
+        let cameraPositions = [];
+        let isTransitioning = false;
+        let show3D = false;
+
+        // Three.js for 3D view
+        let scene, camera3d, renderer, controls, pointCloud;
+
+        // Process camera data
+        function processCameraData() {
+            CAMERAS.forEach(cam => {
+                const m = new THREE.Matrix4();
+                m.set(
+                    cam.matrix[0], cam.matrix[4], cam.matrix[8],  cam.matrix[12],
+                    cam.matrix[1], cam.matrix[5], cam.matrix[9],  cam.matrix[13],
+                    cam.matrix[2], cam.matrix[6], cam.matrix[10], cam.matrix[14],
+                    cam.matrix[3], cam.matrix[7], cam.matrix[11], cam.matrix[15]
+                );
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const scale = new THREE.Vector3();
+                m.decompose(pos, quat, scale);
+                
+                cameraPositions.push({
+                    id: cam.id,
+                    filename: cam.filename,
+                    pos: pos,
+                    quat: quat
+                });
+            });
+        }
+
+        // Initialize
+        function init() {
+            processCameraData();
+            setupMiniMap();
+            setup3DView();
+            navigateToIndex(0);
+            
+            // Event listeners
+            document.getElementById('prevBtn').onclick = () => navigateToIndex(currentIndex - 1);
+            document.getElementById('nextBtn').onclick = () => navigateToIndex(currentIndex + 1);
+            document.getElementById('toggle3dBtn').onclick = toggle3DView;
+            document.getElementById('mainImage').onclick = () => navigateToIndex(currentIndex + 1);
+            
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Navigate to specific camera index
+        function navigateToIndex(index) {
+            if (isTransitioning || index < 0 || index >= CAMERAS.length) return;
+            
+            isTransitioning = true;
+            currentIndex = index;
+            
+            const img = document.getElementById('mainImage');
+            img.classList.remove('visible');
+            
+            setTimeout(() => {
+                // Update path to use 'ds' folder
+                img.src = `ds/${CAMERAS[index].filename}`;
+                img.onload = () => {
+                    img.classList.add('visible');
+                    updateHotspots();
+                    updateUI();
+                    updateMiniMap();
+                    setTimeout(() => isTransitioning = false, 600);
+                };
+                img.onerror = () => {
+                    console.warn(`Image not found: ds/${CAMERAS[index].filename}`);
+                    img.style.opacity = '0.3';
+                    updateHotspots();
+                    updateUI();
+                    setTimeout(() => isTransitioning = false, 600);
+                };
+            }, 300);
+        }
+
+        // Update hotspots based on nearby cameras
+        function updateHotspots() {
+            const container = document.getElementById('hotspotsContainer');
+            container.innerHTML = '';
+            
+            const current = cameraPositions[currentIndex];
+            const nearby = findNearbyViews(current, 4);
+            
+            nearby.forEach(target => {
+                const hotspot = document.createElement('div');
+                hotspot.className = 'hotspot';
+                hotspot.innerHTML = '→';
+                hotspot.title = `Navigate to ${target.filename}`;
+                
+                const angle = calculateScreenAngle(current, target);
+                const distance = current.pos.distanceTo(target.pos);
+                const radius = Math.min(350, 120 + distance * 15);
+                
+                hotspot.style.left = `calc(50% + ${Math.cos(angle) * radius}px - 35px)`;
+                hotspot.style.top = `calc(50% + ${Math.sin(angle) * radius}px - 35px)`;
+                
+                hotspot.onclick = (e) => {
+                    e.stopPropagation();
+                    navigateToIndex(target.id);
+                };
+                
+                container.appendChild(hotspot);
+            });
+        }
+
+        // Find nearby camera views
+        function findNearbyViews(current, maxCount) {
+            return cameraPositions
+                .filter(c => c.id !== current.id)
+                .map(c => ({ ...c, dist: current.pos.distanceTo(c.pos) }))
+                .sort((a, b) => a.dist - b.dist)
+                .slice(0, maxCount);
+        }
+
+        // Calculate screen angle for hotspot placement
+        function calculateScreenAngle(from, to) {
+            const dir = new THREE.Vector3().subVectors(to.pos, from.pos).normalize();
+            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(from.quat);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(from.quat);
+            
+            const x = dir.dot(right);
+            const z = -dir.dot(fwd);
+            return Math.atan2(z, x);
+        }
+
+        // Update UI elements
+        function updateUI() {
+            document.getElementById('currentView').textContent = `📍 ${CAMERAS[currentIndex].filename}`;
+            document.getElementById('cameraCount').textContent = `${currentIndex + 1} / ${CAMERAS.length} viewpoints`;
+            document.getElementById('progressBar').style.width = `${((currentIndex + 1) / CAMERAS.length) * 100}%`;
+            
+            document.getElementById('prevBtn').disabled = currentIndex === 0;
+            document.getElementById('nextBtn').disabled = currentIndex === CAMERAS.length - 1;
+        }
+
+        // Mini map setup
+        let miniMapCtx;
+        function setupMiniMap() {
+            const canvas = document.getElementById('miniMap');
+            canvas.width = 280;
+            canvas.height = 220;
+            miniMapCtx = canvas.getContext('2d');
+        }
+
+        function updateMiniMap() {
+            const ctx = miniMapCtx;
+            const w = 280, h = 220;
+            
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Calculate bounds
+            const positions = cameraPositions.map(c => c.pos);
+            const minX = Math.min(...positions.map(p => p.x)) - 2;
+            const maxX = Math.max(...positions.map(p => p.x)) + 2;
+            const minZ = Math.min(...positions.map(p => p.z)) - 2;
+            const maxZ = Math.max(...positions.map(p => p.z)) + 2;
+            
+            // Draw path
+            cameraPositions.forEach((cam, i) => {
+                const x = ((cam.pos.x - minX) / (maxX - minX)) * (w - 40) + 20;
+                const y = ((cam.pos.z - minZ) / (maxZ - minZ)) * (h - 40) + 20;
+                
+                // Draw connections
+                if (i < cameraPositions.length - 1) {
+                    const next = cameraPositions[i + 1];
+                    const nx = ((next.pos.x - minX) / (maxX - minX)) * (w - 40) + 20;
+                    const ny = ((next.pos.z - minZ) / (maxZ - minZ)) * (h - 40) + 20;
+                    ctx.strokeStyle = 'rgba(102, 126, 234, 0.3)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(nx, ny);
+                    ctx.stroke();
+                }
+                
+                // Draw points
+                ctx.beginPath();
+                ctx.arc(x, y, i === currentIndex ? 8 : 3, 0, Math.PI * 2);
+                ctx.fillStyle = i === currentIndex ? '#00ff88' : '#667eea';
+                ctx.fill();
+            });
+        }
+
+        // 3D View setup
+        function setup3DView() {
+            const canvas = document.getElementById('canvas3d');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            
+            camera3d = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+            camera3d.position.set(5, 8, 15);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            controls = new OrbitControls(camera3d, canvas);
+            controls.enableDamping = true;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(10, 10, 10);
+            scene.add(directionalLight);
+            
+            // Add camera visualization
+            const coneGeom = new THREE.ConeGeometry(0.15, 0.4, 4);
+            coneGeom.rotateX(Math.PI / 2);
+            
+            cameraPositions.forEach(camData => {
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff88,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const mesh = new THREE.Mesh(coneGeom, material);
+                mesh.position.copy(camData.pos);
+                mesh.quaternion.copy(camData.quat);
+                scene.add(mesh);
+            });
+            
+            // Try to load point cloud
+            const loader = new PLYLoader();
+            loader.load('point_cloud.ply',
+                function(geometry) {
+                    const material = new THREE.PointsMaterial({ 
+                        size: 0.03,
+                        vertexColors: true 
+                    });
+                    pointCloud = new THREE.Points(geometry, material);
+                    scene.add(pointCloud);
+                },
+                undefined,
+                function(error) {
+                    console.log('Point cloud not found - showing cameras only');
+                }
+            );
+            
+            // Grid
+            const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+            scene.add(gridHelper);
+        }
+
+        function animate3D() {
+            if (show3D) {
+                requestAnimationFrame(animate3D);
+                controls.update();
+                renderer.render(scene, camera3d);
+            }
+        }
+
+        function toggle3DView() {
+            show3D = !show3D;
+            document.getElementById('canvas3d').style.display = show3D ? 'block' : 'none';
+            document.getElementById('mainImage').style.display = show3D ? 'none' : 'block';
+            document.getElementById('hotspotsContainer').style.display = show3D ? 'none' : 'block';
+            
+            if (show3D) {
+                animate3D();
+            }
+        }
+
+        // Window resize handler
+        window.addEventListener('resize', () => {
+            if (show3D) {
+                camera3d.aspect = window.innerWidth / window.innerHeight;
+                camera3d.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        // Start the app
+        init();
     </script>
 </body>
 </html>
